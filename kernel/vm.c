@@ -409,12 +409,12 @@ kvmcopymappings(pagetable_t src, pagetable_t dst, uint64 start, uint64 sz)
   uint flags;
 
   // PGROUNDUP: prevent re-mapping already mapped pages (eg. when doing growproc)
-  for(i = PGROUNDUP(start); i < start + sz; i += PGSIZE){
-    if((pte = walk(src, i, 0)) == 0)
-      panic("kvmcopymappings: pte should exist");
+  for(i = PGROUNDUP(start); i < start + sz; i += PGSIZE){ //​​遍历虚拟地址​​：按页对齐（PGROUNDUP）逐页处理。
+    if((pte = walk(src, i, 0)) == 0)          // 在源页表中查找 PTE, walk：查找源页表中虚拟地址 i 对应的页表项（PTE）。
+      panic("kvmcopymappings: pte should exist"); // 检查 PTE 是否有效
     if((*pte & PTE_V) == 0)
       panic("kvmcopymappings: page not present");
-    pa = PTE2PA(*pte);
+    pa = PTE2PA(*pte);  // 获取物理地址
     flags = PTE_FLAGS(*pte);
     // `& ~PTE_U` marks the page as kernel page and not user page.
     // Required or else kernel can not access these pages.
@@ -507,6 +507,7 @@ int pgtblprint(pagetable_t pagetable, int depth) {
       printf("%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
 
       // if not a leaf page table, recursively print out the child table
+      //RISC-V 架构规定：当 PTE 中 R、W、X 标志位全为 0 时，表示该 PTE 指向更下一级的页表
       if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
         // this PTE points to a lower-level page table.
         uint64 child = PTE2PA(pte);

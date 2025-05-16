@@ -146,10 +146,10 @@ static void
 freeproc(struct proc *p)
 {
   if(p->trapframe)
-    kfree((void*)p->trapframe);
-  p->trapframe = 0;
+    kfree((void*)p->trapframe); // 释放陷阱帧物理页，​​kfree()​​：将物理页返还给空闲链表（kmem.freelist）
+  p->trapframe = 0;             // 清空指针，​​trapframe​​：保存用户态寄存器状态的物理页（通过 kalloc() 分配）。
   if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
+    proc_freepagetable(p->pagetable, p->sz);  // 释放页表及其映射的物理页
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -160,9 +160,9 @@ freeproc(struct proc *p)
   p->xstate = 0;
   
   // free process-specific kernel stack
-  void *kstack_pa = (void *)kvmpa(p->kernelpgtbl, p->kstack);
+  void *kstack_pa = (void *)kvmpa(p->kernelpgtbl, p->kstack); //​​kvmpa(p->kernelpgtbl, va)​​：通过进程的独立内核页表，将虚拟地址 va 转换为物理地址 pa。
   // printf("trace: free kstack %p\n", kstack_pa);
-  kfree(kstack_pa);
+  kfree(kstack_pa); //​​kfree()​​：将内核栈的物理页返还给空闲链表。
   p->kstack = 0;
   
   // proc_freepagetable can not be used here, since it not only frees the pagetable itself, 
@@ -172,7 +172,7 @@ freeproc(struct proc *p)
   // PTEs inside the kernel page table were allocated using kalloc and not freed.
   
   // printf("trace: freepgtbl %p\n",p->kernelpgtbl);
-  kvm_free_kernelpgtbl(p->kernelpgtbl);
+  kvm_free_kernelpgtbl(p->kernelpgtbl);  // 递归释放页表结构（不释放映射的物理页）,页表是多级结构（三级页表），直接 kfree 只能释放顶级页表页，导致​​二级/三级页表泄漏​​。
   p->kernelpgtbl = 0;
   p->state = UNUSED;
 }
@@ -498,7 +498,7 @@ scheduler(void)
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on();
+    intr_on(); // 允许设备中断（避免死锁）调度器可能长时间运行，需允许时钟中断强制切换进程。
     
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
@@ -511,14 +511,14 @@ scheduler(void)
         c->proc = p;
 
         // switch to process-specific kernel page table
-        w_satp(MAKE_SATP(p->kernelpgtbl));
-        sfence_vma();
+        w_satp(MAKE_SATP(p->kernelpgtbl)); // 设置 satp 寄存器指向进程的内核页表
+        sfence_vma(); // 刷新 TLB（清除地址转换缓存）确保后续地址转换使用新页表。
         // printf("trace: loaded kernel pagetable %p\n", p->kernelpgtbl);
         
-        swtch(&c->context, &p->context);
+        swtch(&c->context, &p->context); // 切换到进程的上下文，swtch()​​：保存当前 CPU 寄存器到 c->context，加载 p->context 到寄存器。
 
         // switch kernel page table back to the globally shared kernel_pagetable
-        kvminithart();
+        kvminithart(); // 恢复全局内核页表（设置 satp 为 kernel_pagetable）
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
